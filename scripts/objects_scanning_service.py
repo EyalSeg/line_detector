@@ -15,7 +15,6 @@ from sensor_msgs.msg import PointCloud2, Image
 from geometry_msgs.msg import Point
 import sensor_msgs.point_cloud2 as pc2
 
-import tf2_ros
 
 import cv2
 
@@ -23,7 +22,7 @@ import cv2
 pointcloud_topic = '/kinect2/qhd/points'
 mrcnn_server_uri='localhost:8000'
 
-camera_transform_name= "kinect2_depth_optical_frame"
+camera_transform_name= "kinect2_depth_frame"
 world_transform_name="map"
 
 service_name = "object_scanning_service"
@@ -70,17 +69,23 @@ class objects_scanner:
         points = self.mask_to_points(cloud, object_mask)
         points = self.normalize_coordinates(points)
 
-        x = np.mean(points[:, 0])
-        y = np.mean(points[:, 1])
-        z = np.mean(points[:, 2])
+        # first axis is col axis -> left-right axis -> y axis
+        # also ROS expects this axis to be where -inf is at the right, so flip the sign of the coordinate
+        y = np.mean(points[:, 0])
+        y = -y
+
+        # second axis is row axis -> up-down axis -> z axis
+        z = np.mean(points[:, 1])
+
+        # third axis is depth axis -> forward-backward axis -> x axis
+        x = np.mean(points[:, 2])
 
         point = [x, y, z]
-
         return point
 
     def mask_to_points(self, cloud, mask):
         pixles = np.argwhere(mask).tolist()
-        pixles = [[v, u] for [u, v] in pixles] # the pixles are row-col but pc expects them as col-row for some reason
+        pixles = [[v, u] for [u, v] in pixles] # the pixles are row-col but pc expects them as col-row
         generator = pc2.read_points(cloud, field_names=['x', 'y', 'z'], uvs=pixles, skip_nans=True)
 
         points = np.array(list(generator))
@@ -141,8 +146,7 @@ def genrerate_respone(coordinates, time):
 if __name__ == "__main__":
     detection_server()
 
-    # tfBuffer = tf2_ros.Buffer()
-    # listener = tf2_ros.TransformListener(tfBuffer)
+
 
 
     # #coordiantes_global = [transform_point(tfBuffer, point, msg_time) for point in coordinates_local]
