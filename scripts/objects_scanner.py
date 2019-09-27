@@ -1,14 +1,18 @@
 #!/usr/bin/env python
 
 import rospy
+
+from line_detector.srv import ObjectDetection, ObjectDetectionResponse
+
 from cv_bridge import CvBridge
 import httplib
 import json
 import sys
 import numpy as np
 
+from std_msgs.msg import Header
 from sensor_msgs.msg import PointCloud2, Image
-from tf2_geometry_msgs import PointStamped
+from geometry_msgs.msg import Point
 import sensor_msgs.point_cloud2 as pc2
 
 import tf2_ros
@@ -23,7 +27,6 @@ camera_transform_name= "kinect2_depth_optical_frame"
 world_transform_name="map"
 
 
-
 class objects_scanner:
     def __init__(self, mrcnn_server_uri):
         self.cv_bridge = CvBridge()
@@ -32,15 +35,15 @@ class objects_scanner:
     def msg_to_image(self, image_msg, encoding="bgr8"):
         return self.cv_bridge.imgmsg_to_cv2(image_msg, encoding)
 
-    def detect(self, pc2_message):
+    def detect(self, pc2_message, desired_classes=[]):
         image = self.pointcloud2_to_rgb(pc2_message)
-        masks = self.find_objects_in_image(image)
+        masks = self.find_objects_in_image(image, desired_classes)
         positions = [self.get_object_position(pc2_message, mask) for mask in masks]        
 
         return positions
 
-    def find_objects_in_image(self, image):
-        body_data = {"image_array": image.tolist(), "classes":['person']}
+    def find_objects_in_image(self, image, desired_classes = []):
+        body_data = {"image_array": image.tolist(), "classes":desired_classes}
         json_data = json.dumps(body_data)
 
         conn = httplib.HTTPConnection(self.mrcnn_server_uri, timeout=sys.maxint)
@@ -97,36 +100,53 @@ class objects_scanner:
         return coordinates[abs(coordinates[:, axis] - mean) < m * sd]
 
 
-def init_node():
+def detection_server():
     rospy.init_node("object_scanner", anonymous=True)
-    rate = rospy.Rate(10)
+    service = rospy.Service('object_scanner', ObjectDetection, handle_detection_request)
+    print("Ready to scan for objects!")
 
-def transform_point(buffer, point, time):
-    stamped = PointStamped()
-    stamped.header.stamp = time
-    stamped.header.frame_id = camera_transform_name
+    rospy.spin()
 
-    stamped.point.x = point[0]
-    stamped.point.y = point[1]
-    stamped.point.z = point[2]
 
-    new_point = buffer.transform(stamped, world_transform_name)
-    return new_point.point
-
-if __name__ == "__main__":
-    init_node()
-
-    tfBuffer = tf2_ros.Buffer()
-    listener = tf2_ros.TransformListener(tfBuffer)
-    
+def handle_detection_request(request):
+    classes = request.classes_to_find
     scanner = objects_scanner(mrcnn_server_uri)
 
     pc2_msg = rospy.wait_for_message(pointcloud_topic, PointCloud2)
-    msg_time = rospy.Time.now()
-    coordiantes_local = scanner.detect(pc2_msg)
-    coordiantes_global = [transform_point(tfBuffer, point, msg_time) for point in coordiantes_local]
 
-    a = 5
+    # This might result in an error trying to transform the points later, if the detection takes too long.
+    # Consider moving this line until _after_ the detection. 
+    # However, it might retrun erronous results if anything in the scene moved during detection time - which should happen in real-world scenario
+    msg_time = rospy.Time.now()
+
+    coordinates_local = scanner.detect(pc2_msg)
+    return genrerate_respone(coordinates_local, msg_time)
+
+
+def genrerate_respone(coordinates, time):
+
+    response = ObjectDetectionResponse()
+
+    response.header.stamp = time
+    response.header.frame_id = camera_transform_name
+
+    response.object_coordinates = [Point(coordinate[0], coordinate[1], coordinate[2]) for coordinate in coordinates]
+
+    return response
+
+
+if __name__ == "__main__":
+    detection_server()
+
+    # tfBuffer = tf2_ros.Buffer()
+    # listener = tf2_ros.TransformListener(tfBuffer)
+
+
+    # #coordiantes_global = [transform_point(tfBuffer, point, msg_time) for point in coordinates_local]
+
+    # points_stamped = [stamp_coordinate(msg_time, *point) for point in coordinates_local]
+
+    # a = 5
 
 
                                                                                                                                                                                                                                                         
