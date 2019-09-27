@@ -26,6 +26,9 @@ mrcnn_server_uri='localhost:8000'
 camera_transform_name= "kinect2_depth_optical_frame"
 world_transform_name="map"
 
+service_name = "object_scanning_service"
+node_name= "object_scanning_service"
+
 
 class objects_scanner:
     def __init__(self, mrcnn_server_uri):
@@ -101,8 +104,8 @@ class objects_scanner:
 
 
 def detection_server():
-    rospy.init_node("object_scanner", anonymous=True)
-    service = rospy.Service('object_scanner', ObjectDetection, handle_detection_request)
+    rospy.init_node(node_name, anonymous=True)
+    service = rospy.Service(service_name, ObjectDetection, handle_detection_request)
     print("Ready to scan for objects!")
 
     rospy.spin()
