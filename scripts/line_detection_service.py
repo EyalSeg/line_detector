@@ -4,11 +4,15 @@ import rospy
 import tf2_ros
 import numpy as np
 import sys
+import tf.transformations
+import math
 
 from scipy import optimize
 
 from line_detector.srv import ObjectDetection
-from tf2_geometry_msgs import PointStamped
+from geometry_msgs.msg import Point, PointStamped, Quaternion
+
+from math import copysign
 
 
 node_name = 'line_detection_service'
@@ -17,7 +21,7 @@ world_frame = 'map'
 line_classes = ['person']
 
 
-distance_from_last_person = 0.5
+distance_from_last_person = 1 # in meters 
 loss_magic_num = 4
 max_line_threshold = 5
 max_polynomial_degree = 3
@@ -28,7 +32,7 @@ def find_next_position_in_line(people_coordinates, direction='ltr'):
     # assumption - the point's frame is parallel to the ground (we inted to convert it to the world frame and drop z to 0 later)
     points = stem_and_sort_line(people_coordinates)
     last_point = points[-1]
-    last_point = [last_point.y, last_point.x]
+    last_yx = [last_point.y, last_point.x]
     weights = generate_weights(len(points))
 
     xs = [point.x for point in points]
@@ -37,11 +41,26 @@ def find_next_position_in_line(people_coordinates, direction='ltr'):
 
     # note that x is the front-distance, so we need p(y) = x
     line_polynomial = curve_fit(ys, xs, max_polynomial_degree, weights)
-    next_y = find_next_position_in_polynomial(line_polynomial, last_point, distance_from_last_person, direction)
+    next_y = find_next_position_in_polynomial(line_polynomial, last_yx, distance_from_last_person, direction)
     next_x = line_polynomial(next_y)
     next_z = last_point.z # or any other value, due to the assumption. Otherwise, we might have to curve fit the same way as for x.
 
-    return Point(next_x, next_y, next_z)
+    new_point = Point(next_x, next_y, next_z)
+    rotation = get_rotation_between_points(new_point, last_point)
+
+    return new_point, rotation
+
+def get_rotation_between_points(origin, target):
+    dx = target.x - origin.x
+    dy = target.y - origin.y
+
+    angle = math.atan(dy / dx) * 180 / np.pi
+
+    q_array = tf.transformations.quaternion_from_euler(0, 0, angle)
+    q = Quaternion(*q_array)
+
+    return q
+    
 
 # find a u such that [u, poly(u)] is given-distance away from given-position 
 # given position - [a, b] s.t p(a) ~= b
@@ -55,14 +74,30 @@ def find_next_position_in_polynomial(polynomial, position, distance, direction='
     # define where we would like our next position to intersect the polynomial
     # note that the higher the y value, the more the point is to the left
     if direction == "ltr":
-        window = (position[0] - 0.01, position[0] + distance * 2)
-    else:
+        #window = get_bisection_window(desired_distance_func, position[0], -0.1)
         window = (position[0] - (distance * 2), position[0] + 0.01)
+    else:
+       # window = get_bisection_window(desired_distance_func, position[0], 0.1)
+        window = (position[0] - 0.01, position[0] + distance * 2)
 
     # find a root for the above function. use any method you prefer.
-    result_u = optimize.bisect(desired_distance_func, *window)
+    result_u = optimize.brentq(desired_distance_func, *window)
 
     return result_u
+
+# returns [x1, x2] s.t either x1 or x2 equals x0 and sgn(f(x1)) != sgn(f(x2)) 
+def get_bisection_window(func_to_solve, x0, step=0.1):
+    x1 = x0
+
+    y0 = func_to_solve(x0)
+    y1 = func_to_solve(x1)         
+
+    while copysign(1, y0) == copysign(1, y1):
+        x1 = x1 + step
+
+        y1 = func_to_solve(x1)         
+
+    return [x0, x1] if step > 0 else [x1, x0]
     
 # finds the best curve to fit the points (p(u) ~= v)
 # prefers lower degree polynomials.
@@ -76,10 +111,12 @@ def curve_fit(u_axis, v_axis, max_degree = 3, weights = None):
     best_curve = None
 
     for degree in range(1, max_degree + 1):
+        # BUG HERE: residual is zero. maybe problem with the weights?
         curve, [resid, rank, sv, rcond] = \
             np.polynomial.polynomial.Polynomial.fit(u_axis, v_axis, degree, w=weights, full=True)
 
-        loss = 0 if len(resid) == 0 else resid * (loss_magic_num ** degree) # punishes higher-order polynomials
+        loss = 0 if len(resid) == 0 else sum(resid)
+        loss = loss * (loss_magic_num ** degree) # punishes higher-order polynomials
 
         if loss < best_loss:
             best_loss = loss
@@ -89,7 +126,7 @@ def curve_fit(u_axis, v_axis, max_degree = 3, weights = None):
 
 def generate_weights(num_of_weights):
     # dimish the weight of a point the further away it is from the line's ending
-    weights = [1 / i for i in reversed(range(1, num_of_weights + 1))]
+    weights = [1.0 / i for i in reversed(range(1, num_of_weights + 1))]
 
     # "encourage" the line to pass through the last point
     weights[-1] = num_of_weights
@@ -119,7 +156,7 @@ def find_people():
     
     return coords, detection_results.header
 
-pub = rospy.Publisher('clicked_point', PointStamped, queue_size=10)
+
 rospy.init_node(node_name)
 
 tfBuffer = tf2_ros.Buffer()
