@@ -1,0 +1,4 @@
+float64 distance
+string line_direction
+---
+geometry_msgs/PoseStamped next_position

@@ -1,6 +1,7 @@
- #!/usr/bin/env python
+#!/usr/bin/env python
 
 import rospy
+
 import tf2_ros
 import numpy as np
 import sys
@@ -10,24 +11,26 @@ import math
 from scipy import optimize
 
 from line_detector.srv import ObjectDetection
-from geometry_msgs.msg import Point, PointStamped, Quaternion
+from geometry_msgs.msg import Point, PointStamped, Quaternion, Pose, PoseStamped
+
+from line_detector.srv import NextPositionInLineService, NextPositionInLineServiceResponse
+
 
 from math import copysign
 
 
+service_name = 'line_detection_service'
 node_name = 'line_detection_service'
 object_scanning_service_name="object_scanning_service"
-world_frame = 'map'
 line_classes = ['person']
 
 
-distance_from_last_person = 1 # in meters 
 loss_magic_num = 4
 max_line_threshold = 5
 max_polynomial_degree = 3
 
 
-def find_next_position_in_line(people_coordinates, direction='ltr'):
+def find_next_position_in_line(people_coordinates, distance, direction='ltr'):
     # note that this function ignores the z coordinate. 
     # assumption - the point's frame is parallel to the ground (we inted to convert it to the world frame and drop z to 0 later)
     points = stem_and_sort_line(people_coordinates)
@@ -41,20 +44,23 @@ def find_next_position_in_line(people_coordinates, direction='ltr'):
 
     # note that x is the front-distance, so we need p(y) = x
     line_polynomial = curve_fit(ys, xs, max_polynomial_degree, weights)
-    next_y = find_next_position_in_polynomial(line_polynomial, last_yx, distance_from_last_person, direction)
+    next_y = find_next_position_in_polynomial(line_polynomial, last_yx, distance, direction)
     next_x = line_polynomial(next_y)
     next_z = last_point.z # or any other value, due to the assumption. Otherwise, we might have to curve fit the same way as for x.
 
     new_point = Point(next_x, next_y, next_z)
-    rotation = get_rotation_between_points(new_point, last_point)
+    orientation = get_rotation_between_points(new_point, last_point)
 
-    return new_point, rotation
+    new_pose = Pose(new_point, orientation)
+
+    return new_pose
 
 def get_rotation_between_points(origin, target):
     dx = target.x - origin.x
     dy = target.y - origin.y
 
     angle = math.atan(dy / dx) * 180 / np.pi
+    angle = -angle # right hand rule...
 
     q_array = tf.transformations.quaternion_from_euler(0, 0, angle)
     q = Quaternion(*q_array)
@@ -63,6 +69,7 @@ def get_rotation_between_points(origin, target):
     
 
 # find a u such that [u, poly(u)] is given-distance away from given-position 
+# used to find a position in the polynomial ~distance away from the given position
 # given position - [a, b] s.t p(a) ~= b
 def find_next_position_in_polynomial(polynomial, position, distance, direction='ltr'):
     # calculates the distance between a and the given position
@@ -156,20 +163,25 @@ def find_people():
     
     return coords, detection_results.header
 
+def init_server():
+    rospy.init_node(node_name)
+    service = rospy.Service(service_name, NextPositionInLineService, handle_request)
+    print("Ready to find line positions!")
 
-rospy.init_node(node_name)
+    rospy.spin()
 
-tfBuffer = tf2_ros.Buffer()
-listener = tf2_ros.TransformListener(tfBuffer)
+    
+def handle_request(request):
+    people, header = find_people()
+    new_pose = find_next_position_in_line(people, request.distance, direction=request.line_direction) 
+
+    result = PoseStamped(header, new_pose)
+    response = NextPositionInLineServiceResponse()
+    response.next_position = result
+
+    return response
+
+if __name__ == "__main__":
+    init_server()
 
 
-people, header = find_people()
-
-next_point = find_next_position_in_line(people, direction='ltr') 
-next_stamped = PointStamped(next_point, header)
-
-result = tfBuffer.transform(next_stamped, world_frame)
-result.z = 0
-
-
-print('people!')

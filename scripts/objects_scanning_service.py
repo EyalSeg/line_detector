@@ -15,7 +15,6 @@ from sensor_msgs.msg import PointCloud2, Image
 from geometry_msgs.msg import Point
 import sensor_msgs.point_cloud2 as pc2
 
-
 import cv2
 
 
@@ -146,14 +145,6 @@ def genrerate_respone(coordinates, time):
 if __name__ == "__main__":
     detection_server()
 
-
-
-
-    # #coordiantes_global = [transform_point(tfBuffer, point, msg_time) for point in coordinates_local]
-
-    # points_stamped = [stamp_coordinate(msg_time, *point) for point in coordinates_local]
-
-    # a = 5
 
 
                                                                                                                                                                                                                                                         
