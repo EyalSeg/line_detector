@@ -59,8 +59,8 @@ def get_rotation_between_points(origin, target):
     dx = target.x - origin.x
     dy = target.y - origin.y
 
-    angle = math.atan(dy / dx) * 180 / np.pi
-    angle = -angle # right hand rule...
+    angle = math.atan2(dy, dx)# * 180 / np.pi
+    #angle = -angle # right hand rule...
 
     q_array = tf.transformations.quaternion_from_euler(0, 0, angle)
     q = Quaternion(*q_array)
