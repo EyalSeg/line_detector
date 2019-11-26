@@ -1,5 +1,5 @@
 # line_detector
-A ros package for detecting lines and queues, and get a position at the line's end.
+A ros package for detecting lines and queues, and getting a position at the line's end.
 
 To learn more, please refer to the wiki.
 
