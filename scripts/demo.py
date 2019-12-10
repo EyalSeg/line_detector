@@ -32,9 +32,17 @@ print("got it!")
 print(result.next_position)
 
 print("converting to map frame")
+
+# Assuming the world is static, you could use this fix. Which will force the coordinates transformation to use the last data which there is on the frame, without respect to the time period.
+result.next_position.header.stamp = rospy.Time(0)
+
 input_pose = PoseStamped(result.next_position.header, result.next_position.pose)
 converted_pose = tfBuffer.transform(input_pose, 'map').pose
 converted_pose.position.z = 0 # ground the position
+
+# A fix for the angle transformation, for the case which the "/kinect2/qhd/points" frame is not parallel to the "map" frame Z axis
+angle_temp = tf.transformations.euler_from_quaternion((converted_pose.orientation.x,converted_pose.orientation.y,converted_pose.orientation.z,converted_pose.orientation.w))
+converted_pose.orientation = Quaternion(*tf.transformations.quaternion_from_euler(0,0,angle_temp[2]))
 
 print(converted_pose)
 
