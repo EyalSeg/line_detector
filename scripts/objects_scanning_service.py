@@ -44,6 +44,7 @@ class objects_scanner:
         return positions
 
     def find_objects_in_image(self, image, desired_classes = []):
+        rospy.loginfo ("desired classes: "+ str(desired_classes))
         body_data = {"image_array": image.tolist(), "classes":desired_classes}
         json_data = json.dumps(body_data)
 
@@ -126,7 +127,7 @@ def handle_detection_request(request):
     # However, it might retrun erronous results if anything in the scene moved during detection time - which should happen in real-world scenario
     msg_time = rospy.Time.now()
 
-    coordinates_local = scanner.detect(pc2_msg)
+    coordinates_local = scanner.detect(pc2_msg, desired_classes=classes)
     return genrerate_respone(coordinates_local, msg_time)
 
 
